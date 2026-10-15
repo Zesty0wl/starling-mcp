@@ -32,7 +32,7 @@ npm ci && npm run build
 npm link            # puts `starling-mcp` on your PATH (optional)
 ```
 
-1. **Create a personal access token.** In the [Starling Developer Portal](https://developer.starlingbank.com), go to *Personal Access*, link your Starling account and create a token. Tick the scopes for the tier you want; `starling-mcp scopes` lists them. Fewer scopes means less risk.
+1. **Create a personal access token.** In the [Starling Developer Portal](https://developer.starlingbank.com), go to *Personal Access*, link your Starling account and create a token. Tick the scopes for the tier you want; `starling-mcp scopes` lists them. Fewer scopes means less risk. Starling refuses tokens that combine `payee:create` with the payment scopes (`pay-local:create`, `standing-order:create`). Leave out `payee:create` and add payees in the Starling app: then even a fully enabled server can only pay people you approved in the app.
 2. **Store it in the Keychain.** Run this in a terminal; input is hidden:
    ```sh
    starling-mcp token set

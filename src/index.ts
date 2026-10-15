@@ -66,7 +66,9 @@ function printScopes(): void {
     previous = new Set(all);
   }
   console.log(
-    "\nTick only the scopes for the tier you plan to enable. You can always create a new token with more scopes later.",
+    "\nTick only the scopes for the tier you plan to enable. You can always create a new token with more scopes later.\n" +
+      "Starling will not issue a token with payee:create AND payment scopes (pay-local:create, standing-order:create).\n" +
+      "Recommended: leave out payee:create and add payees in the Starling app, so the model can only pay payees you approved.",
   );
 }
 

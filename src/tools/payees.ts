@@ -159,7 +159,7 @@ export const payeeTools = [
     name: "create_payee",
     title: "Create payee",
     description:
-      "Saves a new payee with one or more bank accounts. Starling runs Confirmation of Payee on UK accounts. Requires the user's confirmation. Once created, payments can be sent to it.",
+      "Saves a new payee with one or more bank accounts. Starling runs Confirmation of Payee on UK accounts. Requires the user's confirmation. Once created, payments can be sent to it. Starling does not allow payee:create on the same personal token as payment scopes (pay-local:create, standing-order:create), so with a payments token this fails with 403: add the payee in the Starling app instead, or use a separate payee-only token.",
     tier: "payments",
     operations: ["createPayee"],
     confirm: true,
@@ -208,7 +208,8 @@ export const payeeTools = [
   defineTool({
     name: "add_payee_account",
     title: "Add payee account",
-    description: "Adds another bank account to an existing payee. Requires the user's confirmation.",
+    description:
+      "Adds another bank account to an existing payee. Requires the user's confirmation. Starling does not allow payee:create on the same personal token as payment scopes (pay-local:create, standing-order:create), so with a payments token this fails with 403: add the payee in the Starling app instead, or use a separate payee-only token.",
     tier: "payments",
     operations: ["createPayeeAccount"],
     confirm: true,

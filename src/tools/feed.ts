@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  type CompactFeedItem,
   compactFeedItem,
   type FeedItem,
   fetchFeedBetween,
@@ -32,8 +33,22 @@ const detail = z
 
 const feedItemUid = uid("Feed item (transaction) UID");
 
-function present(items: FeedItem[], mode: "compact" | "full" | undefined) {
-  return mode === "full" ? items : items.map(compactFeedItem);
+/**
+ * Compact rows drop fields that are the same for every row of a single-category
+ * query (categoryUid, currency), since the response states them once at the top.
+ */
+function present(
+  items: FeedItem[],
+  mode: "compact" | "full" | undefined,
+  shared?: { categoryUid: string; currency: string },
+) {
+  if (mode === "full") return items;
+  return items.map((item) => {
+    const row: Partial<CompactFeedItem> = compactFeedItem(item);
+    if (shared && row.categoryUid === shared.categoryUid) delete row.categoryUid;
+    if (shared && row.currency === shared.currency) delete row.currency;
+    return row;
+  });
 }
 
 function formatTotals(items: FeedItem[]) {
@@ -86,16 +101,20 @@ export const feedTools = [
         .boolean()
         .optional()
         .describe("Include moves to/from your own spaces and savings goals (default true)"),
-      limit: z.number().int().min(1).max(10000).optional().describe("Max rows returned (default 250)"),
+      limit: z.number().int().min(1).max(10000).optional().describe("Max rows returned (default 100)"),
       detail,
     },
     async run(args, ctx) {
-      const { accountUid: acc, categoryUid: cat } = await ctx.accounts.category(args.accountUid, args.categoryUid);
+      const {
+        accountUid: acc,
+        categoryUid: cat,
+        currency,
+      } = await ctx.accounts.category(args.accountUid, args.categoryUid);
       const to = toTimestamp(args.to ?? new Date().toISOString(), true);
       const from = toTimestamp(args.from ?? new Date(Date.now() - 30 * 86400_000).toISOString());
       const { items, requests, truncated } = await fetchFeedBetween(ctx.client, acc, cat, from, to);
       const matched = sortNewestFirst(filterFeed(items, args));
-      const limit = args.limit ?? 250;
+      const limit = args.limit ?? 100;
       return json({
         accountUid: acc,
         categoryUid: cat,
@@ -107,7 +126,8 @@ export const feedTools = [
         truncated: truncated || matched.length > limit,
         apiRequests: requests,
         totals: formatTotals(matched),
-        transactions: present(matched.slice(0, limit), args.detail),
+        currency,
+        transactions: present(matched.slice(0, limit), args.detail, { categoryUid: cat, currency }),
       });
     },
   }),
@@ -130,7 +150,12 @@ export const feedTools = [
         query: { changesSince: toTimestamp(args.changesSince) },
       });
       const items = sortNewestFirst(res?.feedItems ?? []);
-      return json({ count: items.length, transactions: present(items, args.detail) });
+      return json({
+        categoryUid: r.categoryUid,
+        currency: r.currency,
+        count: items.length,
+        transactions: present(items, args.detail, r),
+      });
     },
   }),
 

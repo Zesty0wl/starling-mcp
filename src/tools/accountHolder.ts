@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { extensionFor, readUploadFile, saveDownload } from "../files.js";
 import { date, uid } from "./schemas.js";
-import { defineTool, done, image, json, requireConfirmation, type ToolContext } from "./types.js";
+import { defineTool, done, image, json, orNotFound, requireConfirmation, type ToolContext, text } from "./types.js";
 
 const get = (name: string, title: string, description: string, operation: string, path: string) =>
   defineTool({
@@ -108,12 +108,15 @@ export const accountHolderTools = [
     },
     async run(args, ctx) {
       const accountHolderUid = await holderUid(ctx, args.accountHolderUid);
-      const img = await ctx.client.binary({
-        method: "GET",
-        path: "/api/v2/account-holder/{accountHolderUid}/profile-image",
-        params: { accountHolderUid },
-        accept: "image/*",
-      });
+      const img = await orNotFound(
+        ctx.client.binary({
+          method: "GET",
+          path: "/api/v2/account-holder/{accountHolderUid}/profile-image",
+          params: { accountHolderUid },
+          accept: "image/*",
+        }),
+      );
+      if (!img) return text("No profile image is set.");
       const saved = args.saveAs
         ? await saveDownload(
             ctx.config.downloadDir,

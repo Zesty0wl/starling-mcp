@@ -10,6 +10,7 @@ import { assertPrivateFile, deleteToken, loadAccessToken, readHidden, storeToken
 import { OPERATIONS } from "./operations.js";
 import { createServer, registeredToolCount, VERSION } from "./server.js";
 import { loadSigner, type RequestSigner } from "./signing.js";
+import { consentNote } from "./tools/accounts.js";
 import { ALL_TOOLS } from "./tools/index.js";
 
 const KEY_DIR = join(CONFIG_DIR, "keys");
@@ -92,12 +93,19 @@ async function doctor(): Promise<void> {
     console.log("Signing:       not configured (payments, standing orders, email and address changes need it)");
   }
 
-  const identity = await client.json<{ scopes?: string[]; expiresAt?: string; accountHolderUid?: string }>({
+  const identity = await client.json<{
+    scopes?: string[];
+    expiresAt?: string;
+    consentExpiresAt?: string;
+    accountHolderUid?: string;
+  }>({
     method: "GET",
     path: "/api/v2/identity/token",
   });
   const granted = new Set(identity.scopes ?? []);
   console.log(`Token expires: ${identity.expiresAt ?? "unknown"}`);
+  const note = consentNote(identity.consentExpiresAt);
+  if (note) console.log(`Consent:       ${note}`);
   console.log(`Granted scopes (${granted.size}): ${[...granted].sort().join(", ")}`);
 
   const accounts = await client.json<{ accounts?: { name: string; currency: string; accountType: string }[] }>({

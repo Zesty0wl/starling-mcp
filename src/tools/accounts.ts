@@ -6,6 +6,16 @@ import { defineTool, json, text } from "./types.js";
 
 type Signed = { currency: string; minorUnits: number };
 
+/** Starling consent lasts 90 days; afterwards only balances and the last 90 days of transactions are available. */
+export function consentNote(consentExpiresAt: string | undefined, now = Date.now()): string | undefined {
+  if (!consentExpiresAt) return undefined;
+  const days = Math.floor((Date.parse(consentExpiresAt) - now) / 86400_000);
+  if (days < 0) {
+    return `Consent expired on ${consentExpiresAt.slice(0, 10)}: Starling now limits data to balances and the last 90 days of transactions. Re-confirm access in the Developer Portal to restore full history.`;
+  }
+  return `Consent valid until ${consentExpiresAt.slice(0, 10)} (${days} days). After that, data is limited to the last 90 days until access is re-confirmed in the Developer Portal.`;
+}
+
 export const accountTools = [
   defineTool({
     name: "get_server_status",
@@ -47,7 +57,11 @@ export const accountTools = [
     readOnly: true,
     input: {},
     async run(_args, ctx) {
-      return json(await ctx.client.json({ method: "GET", path: "/api/v2/identity/token" }));
+      const id = await ctx.client.json<{ consentExpiresAt?: string }>({
+        method: "GET",
+        path: "/api/v2/identity/token",
+      });
+      return json({ ...id, consentNote: consentNote(id?.consentExpiresAt) });
     },
   }),
 

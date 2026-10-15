@@ -1,26 +1,64 @@
+import { z } from "zod";
+import { formatMoney } from "../money.js";
 import { date, uid } from "./schemas.js";
-import { defineTool, done, json, requireConfirmation } from "./types.js";
+import { defineTool, done, json, prune, requireConfirmation } from "./types.js";
+
+interface Mandate {
+  uid: string;
+  reference?: string;
+  status?: string;
+  created?: string;
+  cancelled?: string;
+  originatorName?: string;
+  lastPayment?: { lastDate?: string; lastAmount?: { currency: string; minorUnits: number } };
+  categoryUid?: string;
+}
 
 export const directDebitTools = [
   defineTool({
     name: "list_direct_debit_mandates",
     title: "List direct debits",
     description:
-      "Lists direct debit mandates (who can take money by direct debit), with originator, reference, status, created date and last payment. Pass accountUid to restrict to one account.",
+      "Lists direct debit mandates (who can take money by direct debit): originator, reference, status, created date, last payment date and amount, and the category (space) it is paid from. " +
+      "Only LIVE mandates by default; set includeCancelled to see cancelled ones. Pass accountUid to restrict to one account.",
     tier: "read",
     operations: ["listMandates", "listMandatesForAccount"],
     readOnly: true,
-    input: { accountUid: uid("Only list mandates for this account").optional() },
+    input: {
+      accountUid: uid("Only list mandates for this account").optional(),
+      includeCancelled: z.boolean().optional().describe("Include cancelled mandates (default false)"),
+      detail: z.enum(["compact", "full"]).optional(),
+    },
     async run(args, ctx) {
-      return json(
+      const res = await ctx.client.json<{ mandates?: Mandate[] }>(
         args.accountUid
-          ? await ctx.client.json({
+          ? {
               method: "GET",
               path: "/api/v2/direct-debit/mandates/account/{accountUid}",
               params: { accountUid: args.accountUid },
-            })
-          : await ctx.client.json({ method: "GET", path: "/api/v2/direct-debit/mandates" }),
+            }
+          : { method: "GET", path: "/api/v2/direct-debit/mandates" },
       );
+      const mandates = (res?.mandates ?? []).filter((m) => args.includeCancelled || m.status !== "CANCELLED");
+      if (args.detail === "full") return json({ count: mandates.length, mandates });
+      return json({
+        count: mandates.length,
+        mandates: mandates.map((m) =>
+          prune({
+            mandateUid: m.uid,
+            originator: m.originatorName,
+            reference: m.reference,
+            status: m.status,
+            created: m.created?.slice(0, 10),
+            cancelled: m.cancelled?.slice(0, 10),
+            lastPaid: m.lastPayment?.lastDate,
+            lastAmount: m.lastPayment?.lastAmount
+              ? formatMoney(m.lastPayment.lastAmount.minorUnits, m.lastPayment.lastAmount.currency)
+              : undefined,
+            categoryUid: m.categoryUid,
+          }),
+        ),
+      });
     },
   }),
 

@@ -1,7 +1,17 @@
 import { z } from "zod";
 import { saveDownload } from "../files.js";
 import { date, payeeAccount, uid } from "./schemas.js";
-import { defineTool, done, image, json, requireConfirmation, type ToolContext } from "./types.js";
+import {
+  defineTool,
+  done,
+  image,
+  json,
+  orNotFound,
+  prune,
+  requireConfirmation,
+  type ToolContext,
+  text,
+} from "./types.js";
 
 export interface PayeeAccount {
   payeeAccountUid: string;
@@ -11,6 +21,7 @@ export interface PayeeAccount {
   accountIdentifier?: string;
   bankIdentifier?: string;
   bankIdentifierType?: string;
+  lastReferences?: string[];
 }
 
 export interface Payee {
@@ -63,13 +74,48 @@ export const payeeTools = [
     name: "list_payees",
     title: "List payees",
     description:
-      "Lists saved payees and their accounts (payeeAccountUid, sort code / account number, recent references). Payments and standing orders are made to a payeeAccountUid from here.",
+      "Lists saved payees, one compact row per payee account: name, payeeUid, payeeAccountUid, sort code / account number and recent references. " +
+      "Payments and standing orders are made to a payeeAccountUid from here. Use search to filter by name, label or reference; detail=full returns every field.",
     tier: "read",
     operations: ["getPayees"],
     readOnly: true,
-    input: {},
-    async run(_args, ctx) {
-      return json({ payees: await listPayees(ctx) });
+    input: {
+      search: z
+        .string()
+        .optional()
+        .describe("Case-insensitive match on payee name, account label or recent references"),
+      detail: z.enum(["compact", "full"]).optional(),
+    },
+    async run(args, ctx) {
+      const q = args.search?.toLowerCase();
+      const payees = (await listPayees(ctx)).filter((p) => {
+        if (!q) return true;
+        const hay = [
+          p.payeeName,
+          ...(p.accounts ?? []).flatMap((a) => [a.description, ...((a.lastReferences as string[]) ?? [])]),
+        ];
+        return hay.some((h) => h?.toLowerCase().includes(q));
+      });
+      if (args.detail === "full") return json({ count: payees.length, payees });
+      const rows = payees.flatMap((p) =>
+        (p.accounts?.length ? p.accounts : [undefined]).map((a) =>
+          prune({
+            name: p.payeeName,
+            type: p.payeeType,
+            payeeUid: p.payeeUid,
+            payeeAccountUid: a?.payeeAccountUid,
+            label: a?.description,
+            account:
+              a?.bankIdentifierType === "SORT_CODE"
+                ? `${a.bankIdentifier?.replace(/^(\d{2})(\d{2})(\d{2})$/, "$1-$2-$3")} ${a.accountIdentifier}`
+                : a
+                  ? `${a.bankIdentifierType} ${a.bankIdentifier} ${a.accountIdentifier}`
+                  : undefined,
+            recentReferences: (a?.lastReferences as string[] | undefined)?.slice(0, 3),
+          }),
+        ),
+      );
+      return json({ count: rows.length, payees: rows });
     },
   }),
 
@@ -101,12 +147,15 @@ export const payeeTools = [
     readOnly: true,
     input: { payeeUid: uid("Payee UID"), saveAs: z.string().optional().describe("Also save to this file") },
     async run(args, ctx) {
-      const img = await ctx.client.binary({
-        method: "GET",
-        path: "/api/v2/payees/{payeeUid}/image",
-        params: { payeeUid: args.payeeUid },
-        accept: "image/png",
-      });
+      const img = await orNotFound(
+        ctx.client.binary({
+          method: "GET",
+          path: "/api/v2/payees/{payeeUid}/image",
+          params: { payeeUid: args.payeeUid },
+          accept: "image/png",
+        }),
+      );
+      if (!img) return text("This payee has no image.");
       const saved = args.saveAs ? await saveDownload(ctx.config.downloadDir, args.saveAs, img.data) : undefined;
       return image(img.data.toString("base64"), img.contentType, saved ? `Saved to ${saved}` : undefined);
     },

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { formatMoney } from "../money.js";
-import { describePayeeAccount, findPayeeAccount } from "./payees.js";
+import { describePayeeAccount, findPayeeAccount, listPayees } from "./payees.js";
 import { accountUid, categoryUid, minorUnits, paymentReference, recurrence, spendingCategory, uid } from "./schemas.js";
-import { defineTool, done, json, requireConfirmation, type ToolContext } from "./types.js";
+import { defineTool, done, json, prune, requireConfirmation, type ToolContext } from "./types.js";
 
 const SO_PATH = "/api/v2/payments/local/account/{accountUid}/category/{categoryUid}/standing-orders";
 
@@ -23,6 +23,16 @@ function describeRecurrence(r: z.infer<typeof recurrence>): string {
   const base = every ? `${every}${unit}s` : r.frequency.toLowerCase();
   const end = r.count ? `, ${r.count} payments` : r.untilDate ? `, until ${r.untilDate}` : ", until cancelled";
   return `${base} from ${r.startDate}${end}`;
+}
+
+interface OrderPayment {
+  paymentUid: string;
+  amount: { currency: string; minorUnits: number };
+  reference?: string;
+  createdAt: string;
+  completedAt?: string | null;
+  rejectedAt?: string | null;
+  paymentStatusDetails?: { paymentStatus?: string; description?: string };
 }
 
 interface StandingOrder {
@@ -135,19 +145,45 @@ export const paymentTools = [
     name: "list_payment_order_payments",
     title: "Payments for a payment order",
     description:
-      "Lists the actual payments made under a payment order, with status (PENDING, ACCEPTED, REJECTED) and reasons. Use after make_payment to check it went through.",
+      "Lists the actual payments made under a payment order (newest first), with status (PENDING, ACCEPTED, REJECTED) and reasons. Use after make_payment to check it went through.",
     tier: "read",
     operations: ["getPaymentOrderPayments"],
     readOnly: true,
-    input: { paymentOrderUid: uid("Payment order UID") },
+    input: {
+      paymentOrderUid: uid("Payment order UID"),
+      limit: z.number().int().min(1).max(1000).optional().describe("Max payments returned (default 24)"),
+      detail: z.enum(["compact", "full"]).optional(),
+    },
     async run(args, ctx) {
-      return json(
-        await ctx.client.json({
-          method: "GET",
-          path: "/api/v2/payments/local/payment-order/{paymentOrderUid}/payments",
-          params: { paymentOrderUid: args.paymentOrderUid },
-        }),
-      );
+      const res = await ctx.client.json<{ payments?: OrderPayment[] }>({
+        method: "GET",
+        path: "/api/v2/payments/local/payment-order/{paymentOrderUid}/payments",
+        params: { paymentOrderUid: args.paymentOrderUid },
+      });
+      const all = [...(res?.payments ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+      const limited = all.slice(0, args.limit ?? 24);
+      return json({
+        total: all.length,
+        returned: limited.length,
+        payments:
+          args.detail === "full"
+            ? limited
+            : limited.map((p) =>
+                prune({
+                  paymentUid: p.paymentUid,
+                  amount: formatMoney(p.amount.minorUnits, p.amount.currency),
+                  reference: p.reference,
+                  created: p.createdAt,
+                  completed: p.completedAt,
+                  rejected: p.rejectedAt,
+                  status: p.paymentStatusDetails?.paymentStatus,
+                  reason:
+                    p.paymentStatusDetails?.description !== p.paymentStatusDetails?.paymentStatus
+                      ? p.paymentStatusDetails?.description
+                      : undefined,
+                }),
+              ),
+      });
     },
   }),
 
@@ -155,14 +191,46 @@ export const paymentTools = [
     name: "list_standing_orders",
     title: "List standing orders",
     description:
-      "Lists standing orders paid from the main account (or a space), with amount, payee, reference, recurrence and next date. Orders awaiting review are not included.",
+      "Lists standing orders paid from the main account (or a space): payee name, amount, reference, schedule and next date. " +
+      "Active ones only by default (includeCancelled to see the rest). Orders awaiting review are not included.",
     tier: "read",
     operations: ["listStandingOrders"],
     readOnly: true,
-    input: { accountUid, categoryUid },
+    input: {
+      accountUid,
+      categoryUid,
+      includeCancelled: z.boolean().optional().describe("Include cancelled standing orders (default false)"),
+      detail: z.enum(["compact", "full"]).optional(),
+    },
     async run(args, ctx) {
       const r = await ctx.accounts.category(args.accountUid, args.categoryUid);
-      return json(await ctx.client.json({ method: "GET", path: SO_PATH, params: r }));
+      const res = await ctx.client.json<{ standingOrders?: StandingOrder[] }>({
+        method: "GET",
+        path: SO_PATH,
+        params: r,
+      });
+      const orders = (res?.standingOrders ?? []).filter((o) => args.includeCancelled || !o.cancelledAt);
+      if (args.detail === "full") return json({ count: orders.length, standingOrders: orders });
+      const names = new Map<string, string>();
+      if (orders.length)
+        for (const p of await listPayees(ctx))
+          for (const a of p.accounts ?? []) names.set(a.payeeAccountUid, p.payeeName);
+      return json({
+        count: orders.length,
+        standingOrders: orders.map((o) =>
+          prune({
+            paymentOrderUid: o.paymentOrderUid,
+            payee: o.payeeAccountUid ? names.get(o.payeeAccountUid) : undefined,
+            payeeAccountUid: o.payeeAccountUid,
+            amount: formatMoney(o.amount.minorUnits, o.amount.currency),
+            reference: o.reference,
+            schedule: describeRecurrence(o.standingOrderRecurrence),
+            nextDate: o.cancelledAt ? undefined : o.nextDate,
+            cancelled: o.cancelledAt?.slice(0, 10),
+            spendingCategory: o.spendingCategory,
+          }),
+        ),
+      });
     },
   }),
 

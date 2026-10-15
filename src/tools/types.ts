@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import type { AccountResolver } from "../accounts.js";
 import type { AuditLog } from "../audit.js";
-import type { StarlingClient } from "../client.js";
+import { StarlingApiError, type StarlingClient } from "../client.js";
 import type { AccessTier, Config } from "../config.js";
 import type { Confirmer } from "../confirm.js";
 
@@ -49,8 +49,26 @@ export function defineTool<S extends z.ZodRawShape>(def: ToolDef<S>): ToolDef<S>
   return def;
 }
 
+/** Compact JSON (no indentation): models read it equally well and it costs far less context. */
 export function json(data: unknown): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(data ?? { success: true }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify(data ?? { success: true }) }] };
+}
+
+/** Removes null, undefined and empty-string fields so list output stays small. */
+export function prune<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== null && v !== undefined && v !== ""),
+  ) as Partial<T>;
+}
+
+/** Resolves to undefined when Starling answers 404 (e.g. no photo has been set). */
+export async function orNotFound<T>(promise: Promise<T>): Promise<T | undefined> {
+  try {
+    return await promise;
+  } catch (err) {
+    if (err instanceof StarlingApiError && err.status === 404) return undefined;
+    throw err;
+  }
 }
 
 export function text(message: string): CallToolResult {
@@ -60,7 +78,7 @@ export function text(message: string): CallToolResult {
 export function done(message: string, data?: unknown): CallToolResult {
   return data === undefined || data === null || data === ""
     ? text(message)
-    : { content: [{ type: "text", text: `${message}\n${JSON.stringify(data, null, 2)}` }] };
+    : { content: [{ type: "text", text: `${message}\n${JSON.stringify(data)}` }] };
 }
 
 export function image(base64: string, mimeType: string, caption?: string): CallToolResult {

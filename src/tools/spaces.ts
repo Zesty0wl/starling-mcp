@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readUploadFile } from "../files.js";
 import { formatMoney } from "../money.js";
 import { accountUid, currency, minorUnits, recurrence, uid } from "./schemas.js";
-import { defineTool, done, image, json, requireConfirmation, type ToolContext, text } from "./types.js";
+import { defineTool, done, image, json, orNotFound, requireConfirmation, type ToolContext, text } from "./types.js";
 
 const GOAL_PATH = "/api/v2/account/{accountUid}/savings-goals";
 const savingsGoalUid = uid("Savings goal (savings space) UID");
@@ -13,7 +13,7 @@ async function goalParams(ctx: ToolContext, args: { accountUid?: string; savings
   return { account, params: { accountUid: account.accountUid, savingsGoalUid: args.savingsGoalUid } };
 }
 
-function photoResult(res: { base64EncodedPhoto?: string } | null, what: string) {
+function photoResult(res: { base64EncodedPhoto?: string } | null | undefined, what: string) {
   if (!res?.base64EncodedPhoto) return text(`No photo set for this ${what}.`);
   const b64 = res.base64EncodedPhoto.replace(/^data:[^;]+;base64,/, "");
   const head = Buffer.from(b64.slice(0, 16), "base64");
@@ -95,11 +95,13 @@ export const spaceTools = [
     input: { accountUid, spaceUid: uid("Space UID") },
     async run(args, ctx) {
       const account = await ctx.accounts.account(args.accountUid);
-      const res = await ctx.client.json<{ base64EncodedPhoto?: string }>({
-        method: "GET",
-        path: "/api/v2/account/{accountUid}/spaces/{spaceUid}/photo",
-        params: { accountUid: account.accountUid, spaceUid: args.spaceUid },
-      });
+      const res = await orNotFound(
+        ctx.client.json<{ base64EncodedPhoto?: string }>({
+          method: "GET",
+          path: "/api/v2/account/{accountUid}/spaces/{spaceUid}/photo",
+          params: { accountUid: account.accountUid, spaceUid: args.spaceUid },
+        }),
+      );
       return photoResult(res, "space");
     },
   }),
@@ -144,11 +146,13 @@ export const spaceTools = [
     input: { accountUid, savingsGoalUid },
     async run(args, ctx) {
       const { params } = await goalParams(ctx, args);
-      const res = await ctx.client.json<{ base64EncodedPhoto?: string }>({
-        method: "GET",
-        path: `${GOAL_PATH}/{savingsGoalUid}/photo`,
-        params,
-      });
+      const res = await orNotFound(
+        ctx.client.json<{ base64EncodedPhoto?: string }>({
+          method: "GET",
+          path: `${GOAL_PATH}/{savingsGoalUid}/photo`,
+          params,
+        }),
+      );
       return photoResult(res, "savings goal");
     },
   }),

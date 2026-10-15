@@ -69,28 +69,76 @@ export async function loadAccessToken(
 }
 
 /**
- * Stores the token in the Keychain. `security` prompts for the value itself,
- * so the token never appears in argv, shell history or this process's memory.
+ * Reads a secret from the terminal without echoing it. Unlike getpass()
+ * (used by `security -w`), there is no 128-character limit, so long JWT
+ * tokens can be pasted. When stdin is not a terminal (e.g. `pbpaste |`),
+ * the whole of stdin is read instead.
  */
-export function storeTokenInteractively(environment: Environment): Promise<void> {
+export function readHidden(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return new Promise((resolve, reject) => {
+      let data = "";
+      stdin.setEncoding("utf8");
+      stdin.on("data", (c: string) => {
+        data += c;
+      });
+      stdin.on("end", () => resolve(data.trim()));
+      stdin.on("error", reject);
+    });
+  }
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      SECURITY,
-      [
-        "add-generic-password",
-        "-U",
-        "-s",
-        KEYCHAIN_SERVICE,
-        "-a",
-        keychainAccount(environment),
-        "-l",
-        `Starling MCP personal access token (${environment})`,
-        "-w",
-      ],
-      { stdio: "inherit" },
-    );
+    process.stdout.write(prompt);
+    let value = "";
+    stdin.setRawMode(true);
+    stdin.setEncoding("utf8");
+    stdin.resume();
+    const finish = (err?: Error) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener("data", onData);
+      process.stdout.write("\n");
+      if (err) reject(err);
+      else resolve(value.trim());
+    };
+    const onData = (chunk: string) => {
+      // Strip bracketed-paste markers some terminals add around pasted text.
+      for (const ch of chunk.replaceAll("\u001b[200~", "").replaceAll("\u001b[201~", "")) {
+        if (ch === "\r" || ch === "\n" || ch === "\u0004") return finish();
+        if (ch === "\u0003") return finish(new Error("Cancelled"));
+        if (ch === "\u007f" || ch === "\b") value = value.slice(0, -1);
+        else if (ch >= " ") value += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+/**
+ * Stores the token in the Keychain. The token is passed to `security` over a
+ * pipe (interactive mode), never as a command-line argument, so it cannot be
+ * seen in process listings or shell history.
+ */
+export function storeToken(environment: Environment, token: string): Promise<void> {
+  if (!/^[A-Za-z0-9._~+/=-]+$/.test(token)) {
+    return Promise.reject(new Error("That does not look like a Starling access token (unexpected characters)."));
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(SECURITY, ["-i"], { stdio: ["pipe", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => {
+      stderr += d;
+    });
     child.on("error", reject);
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`security exited with code ${code}`))));
+    child.on("exit", (code) =>
+      code === 0 && !stderr.trim()
+        ? resolve()
+        : reject(new Error(`Could not save to the Keychain: ${stderr.trim() || `security exited with code ${code}`}`)),
+    );
+    const label = `Starling MCP personal access token (${environment})`;
+    child.stdin.end(
+      `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${keychainAccount(environment)} -l "${label}" -w "${token}"\n`,
+    );
   });
 }
 

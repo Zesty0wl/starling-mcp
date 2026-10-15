@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StarlingClient } from "./client.js";
 import { type AccessTier, CONFIG_DIR, type Config, type Environment, loadConfig, tierAllows } from "./config.js";
-import { assertPrivateFile, deleteToken, loadAccessToken, storeTokenInteractively } from "./credentials.js";
+import { assertPrivateFile, deleteToken, loadAccessToken, readHidden, storeToken } from "./credentials.js";
 import { OPERATIONS } from "./operations.js";
 import { createServer, registeredToolCount, VERSION } from "./server.js";
 import { loadSigner, type RequestSigner } from "./signing.js";
@@ -173,7 +173,8 @@ function usage(): void {
 
 Usage:
   starling-mcp                         Run the MCP server on stdio (what MCP clients launch)
-  starling-mcp token set [--sandbox]   Store a personal access token in the macOS Keychain (prompts; not echoed)
+  starling-mcp token set [--sandbox]   Check a personal access token and store it in the macOS Keychain (hidden prompt,
+                                       or pipe it: pbpaste | starling-mcp token set)
   starling-mcp token delete [--sandbox]
   starling-mcp doctor                  Check configuration, token scopes and account access
   starling-mcp scopes                  List the token scopes each access tier needs
@@ -192,16 +193,22 @@ async function main(argv: string[]): Promise<void> {
       return serve();
     case "token":
       if (sub === "set") {
-        console.log(`Paste your Starling ${env} personal access token when prompted (input is hidden).`);
-        await storeTokenInteractively(env);
-        console.log("Stored in the macOS Keychain. Checking it works…");
+        const token = await readHidden(
+          `Paste your Starling ${env} personal access token (hidden), then press Return: `,
+        );
+        if (!token) throw new Error("No token entered.");
+        console.log(`Received ${token.length} characters. Checking it with Starling…`);
         process.env.STARLING_ENVIRONMENT = env;
-        const { client } = await makeClient(loadConfig());
+        const client = new StarlingClient(loadConfig(), token, undefined);
         const id = await client.json<{ scopes?: string[]; expiresAt?: string }>({
           method: "GET",
           path: "/api/v2/identity/token",
         });
-        console.log(`Token OK. ${id.scopes?.length ?? 0} scopes granted; expires ${id.expiresAt ?? "never"}.`);
+        await storeToken(env, token);
+        console.log(
+          `Token OK and saved to the macOS Keychain. ${id.scopes?.length ?? 0} scopes granted; expires ${id.expiresAt ?? "never"}.`,
+        );
+        if (!process.stdin.isTTY) console.log("If you piped it from the clipboard, clear it with: pbcopy < /dev/null");
         return;
       }
       if (sub === "delete") {

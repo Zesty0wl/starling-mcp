@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+- npm package name is now `@zesty0wl/starling-mcp`, so directories no longer link to an unrelated package that already uses the name `starling-mcp`. The command is still `starling-mcp`.
+
 ## [0.1.0] - 2026-10-15
 
 First public release.

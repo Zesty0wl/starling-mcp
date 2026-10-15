@@ -1,5 +1,5 @@
 {
-  "name": "starling-mcp",
+  "name": "@zesty0wl/starling-mcp",
   "version": "0.1.0",
   "description": "Privacy-first Model Context Protocol server for the Starling Bank public API. Local stdio only, no telemetry, token in the macOS Keychain.",
   "type": "module",

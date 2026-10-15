@@ -20,3 +20,19 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t starling-mcp:ci .
+      - name: Smoke test (initialize and list tools over stdio, no token)
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | timeout 20 docker run --rm -i starling-mcp:ci > out.jsonl || true
+          grep -q '"list_accounts"' out.jsonl
+          echo "tools listed: $(grep -o '"name":"[a-z_]*"' out.jsonl | wc -l)"

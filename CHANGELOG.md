@@ -17,6 +17,7 @@ First public release.
 - Optional per-payment cap (`STARLING_PAYMENT_LIMIT_MINOR_UNITS`), local audit log of every state-changing call, and client-side rate limiting for Starling's 5 requests/second limit.
 - CLI: `token set|delete`, `doctor`, `scopes`, `keys`.
 - `npm run spec:check` compares the implementation with Starling's live OpenAPI spec.
+- `Dockerfile` for container-based MCP hosts and directories (token via `STARLING_ACCESS_TOKEN`), smoke-tested in CI; `glama.json` for the Glama directory.
 
 ### Fixed (found while testing against a live account)
 - `token set` silently truncated tokens to 128 characters because it relied on macOS `getpass()`. It now reads input itself, validates the token with Starling before saving, and passes it to `security` over a pipe.

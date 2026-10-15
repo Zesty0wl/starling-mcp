@@ -77,6 +77,17 @@ npm link            # puts `starling-mcp` on your PATH (optional)
    }
    ```
 
+### Docker
+
+A `Dockerfile` is included for MCP hosts and directories that run servers in containers. The macOS Keychain isn't available inside a container, so pass the token with `STARLING_ACCESS_TOKEN` (or mount a `chmod 600` file and set `STARLING_ACCESS_TOKEN_FILE`):
+
+```sh
+docker build -t starling-mcp .
+docker run --rm -i -e STARLING_ACCESS_TOKEN starling-mcp
+```
+
+On a Mac, running it natively is more private, because the token stays in the Keychain.
+
 ## Configuration
 
 All configuration is through environment variables. None of them hold secrets except the token fallbacks.

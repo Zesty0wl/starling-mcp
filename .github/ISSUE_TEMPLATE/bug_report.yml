@@ -1,0 +1,38 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not include real account data**: no tokens, UIDs, transactions, names, sort codes or account numbers. Redact anything personal from logs and tool output.
+        For security problems, use private vulnerability reporting instead (see SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: tool
+    attributes:
+      label: Tool or command
+      placeholder: e.g. list_transactions, starling-mcp doctor
+  - type: textarea
+    id: output
+    attributes:
+      label: Error message or output (redacted)
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: starling-mcp 0.1.0, Node 22.x, macOS 15, Claude Code 2.x
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Starling environment
+      options: [production, sandbox]

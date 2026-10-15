@@ -6,7 +6,7 @@ This server sits between an AI model and a real bank account. Please read this b
 
 | Threat | Mitigation |
 |---|---|
-| Token theft from disk, shell history or process listings | Token stored in the macOS Keychain via `security`'s own prompt; never passed on the command line; never logged; never included in tool output or errors. File fallback must be `chmod 600`. |
+| Token theft from disk, shell history or process listings | Token read at a hidden prompt (no length limit), validated with Starling, then stored in the macOS Keychain by piping it to `security`; never passed on the command line; never logged; never included in tool output or errors. File fallback must be `chmod 600`. |
 | Token sent somewhere other than Starling | Base URL is hard-coded per environment; every request's origin is checked; redirects are refused; pagination follows only the cursor value, never a server-supplied URL. |
 | Prompt injection via third-party data (payment references, counterparty names, receipts) | Server instructions tell the model to treat these strictly as data. Money-moving and destructive tools require human confirmation, by client elicitation where available (the model cannot answer it) or by preview plus a single-use code. Write and payment tools are not registered unless explicitly enabled. |
 | Payment to an attacker's account | Payments and standing orders can only target existing saved payees (Starling's rule for personal tokens, also enforced locally). Creating a payee is itself a confirmed, payment-tier action. Confirmation text shows the payee name, sort code and account number. Optional per-payment cap. |

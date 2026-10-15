@@ -31,7 +31,16 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "author": "Neil Johnson",
   "license": "MIT",
+  "homepage": "https://github.com/Zesty0wl/starling-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zesty0wl/starling-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zesty0wl/starling-mcp/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^4.6.5"

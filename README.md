@@ -1,5 +1,11 @@
 # starling-mcp
 
+[![CI](https://github.com/Zesty0wl/starling-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Zesty0wl/starling-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](package.json)
+[![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)](https://modelcontextprotocol.io)
+[![Starling API coverage](https://img.shields.io/badge/Starling%20API-87%2F87%20operations-6935D3.svg)](#tools)
+
 A privacy-first [Model Context Protocol](https://modelcontextprotocol.io) server for the [Starling Bank public API](https://developer.starlingbank.com/docs). It lets an AI assistant such as Claude read and manage **your own** Starling accounts: balances, transactions, spaces, savings goals, cards, direct debits, payees, payments and standing orders.
 
 It implements **all 87 operations** in Starling's public API spec. A test enforces this, and `npm run spec:check` compares the server against Starling's live spec. It also adds local analysis tools on top: spending summaries, subscription detection and a one-call financial overview.
@@ -11,7 +17,7 @@ It implements **all 87 operations** in Starling's public API spec. A test enforc
 Your bank token can move money, so the design assumes it must never leak and that the model can be manipulated.
 
 - **Local only.** stdio transport, no HTTP listener, no telemetry, no analytics, no third-party services. The only host it ever contacts is `api.starlingbank.com` (or `api-sandbox.starlingbank.com`). That host is hard-coded, redirects are refused, and path parameters are percent-encoded.
-- **Token in the macOS Keychain.** `starling-mcp token set` has macOS's `security` tool prompt for the token, so it never appears in shell history, process arguments or config files. Environment variables and a `chmod 600` file are supported as fallbacks.
+- **Token in the macOS Keychain.** `starling-mcp token set` reads the token at a hidden prompt (or from a pipe, e.g. `pbpaste | starling-mcp token set`), checks it with Starling, and only then stores it in the Keychain, passing it to macOS's `security` tool over a pipe. It never appears in shell history, process arguments or config files. Environment variables and a `chmod 600` file are supported as fallbacks.
 - **Read-only by default.** Write tools and payment tools are not even registered unless you opt in with `STARLING_ENABLE_WRITES` / `STARLING_ENABLE_PAYMENTS`. The token's own scopes are a second, independent limit.
 - **Human confirmation for anything risky.** Payments, standing orders, payee changes, cancelling direct debits, deleting savings spaces, personal-detail changes and token revocation all require explicit approval:
   - With clients that support MCP *elicitation*, the client shows you a confirmation dialog directly. The model cannot answer it, which is the strongest defence against prompt injection (for example, instructions hidden in a payment reference someone sent you).
@@ -27,15 +33,17 @@ Your bank token can move money, so the design assumes it must never leak and tha
 Requires Node.js 22 or later.
 
 ```sh
-git clone https://github.com/<you>/starling-mcp.git && cd starling-mcp
+git clone https://github.com/Zesty0wl/starling-mcp.git && cd starling-mcp
 npm ci && npm run build
 npm link            # puts `starling-mcp` on your PATH (optional)
 ```
 
 1. **Create a personal access token.** In the [Starling Developer Portal](https://developer.starlingbank.com), go to *Personal Access*, link your Starling account and create a token. Tick the scopes for the tier you want; `starling-mcp scopes` lists them. Fewer scopes means less risk. Starling refuses tokens that combine `payee:create` with the payment scopes (`pay-local:create`, `standing-order:create`). Leave out `payee:create` and add payees in the Starling app: then even a fully enabled server can only pay people you approved in the app.
-2. **Store it in the Keychain.** Run this in a terminal; input is hidden:
+2. **Store it in the Keychain.** Run this in a terminal and paste the token; input is hidden. The token is checked with Starling before it's saved:
    ```sh
    starling-mcp token set
+   # or straight from the clipboard, then clear it:
+   pbpaste | starling-mcp token set && pbcopy < /dev/null
    ```
 3. **Check everything.**
    ```sh
@@ -175,7 +183,7 @@ This creates RSA-4096 *API* and *rotation* key pairs in `~/.config/starling-mcp/
 
 | Tool | Tier | What it does |
 |---|---|---|
-| `list_direct_debit_mandates` | read | Lists direct debit mandates (who can take money by direct debit), with originator, reference, status, created date and last payment. |
+| `list_direct_debit_mandates` | read | Lists direct debit mandates (who can take money by direct debit): originator, reference, status, created date, last payment date and amount, and the category (space) it is paid from. |
 | `get_direct_debit_mandate` | read | Gets one direct debit mandate. |
 | `list_direct_debit_payments` | read | Lists the payments taken under a direct debit mandate since a date. |
 | `cancel_direct_debit_mandate` | write ✋ | Cancels a direct debit mandate so the originator can no longer collect payments. |
@@ -184,7 +192,7 @@ This creates RSA-4096 *API* and *rotation* key pairs in `~/.config/starling-mcp/
 
 | Tool | Tier | What it does |
 |---|---|---|
-| `list_payees` | read | Lists saved payees and their accounts (payeeAccountUid, sort code / account number, recent references). |
+| `list_payees` | read | Lists saved payees, one compact row per payee account: name, payeeUid, payeeAccountUid, sort code / account number and recent references. |
 | `get_payee` | read | Gets one saved payee and its accounts. |
 | `get_payee_image` | read | Returns the payee's image (PNG), if one exists. |
 | `list_payee_payments` | read | Lists the history of payments made to a payee account since a date. |
@@ -200,8 +208,8 @@ This creates RSA-4096 *API* and *rotation* key pairs in `~/.config/starling-mcp/
 | Tool | Tier | What it does |
 |---|---|---|
 | `get_payment_order` | read | Gets a payment order (an instructed payment or standing order) by its paymentOrderUid. |
-| `list_payment_order_payments` | read | Lists the actual payments made under a payment order, with status (PENDING, ACCEPTED, REJECTED) and reasons. |
-| `list_standing_orders` | read | Lists standing orders paid from the main account (or a space), with amount, payee, reference, recurrence and next date. |
+| `list_payment_order_payments` | read | Lists the actual payments made under a payment order (newest first), with status (PENDING, ACCEPTED, REJECTED) and reasons. |
+| `list_standing_orders` | read | Lists standing orders paid from the main account (or a space): payee name, amount, reference, schedule and next date. |
 | `get_standing_order` | read | Gets one standing order. |
 | `list_standing_order_upcoming_payments` | read | Lists the next payment dates of a standing order (1 to 100, default 10). |
 | `make_payment` | payments ✋ | Sends an immediate payment (UK Faster Payments, or SEPA from a EUR account) to an EXISTING saved payee account. |
